@@ -1,0 +1,527 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CleanLoop - sort, collect, report, predict and recycle household waste.
+  Cognito + API Gateway + Lambda + DynamoDB (Streams) + S3 + Bedrock + Rekognition +
+  SNS + SES + EventBridge Scheduler + Amazon Location + Amplify Hosting + CloudWatch.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedPattern: '[a-z0-9-]{2,12}'
+    Description: Short environment name used in resource names.
+  SenderEmail:
+    Type: String
+    Default: ''
+    Description: Address SES sends from (verified automatically by this stack; click the link AWS emails you).
+  OfficerEmail:
+    Type: String
+    Default: ''
+    Description: Ward officer inbox for new reports. In the SES sandbox it must be verified too (this stack starts that).
+  BedrockModelId:
+    Type: String
+    Default: anthropic.claude-opus-5-5
+    Description: Claude model on the Bedrock Messages endpoint (bedrock-mantle).
+  BedrockFallbackModelIds:
+    Type: String
+    Default: anthropic.claude-haiku-4-5,global.anthropic.claude-sonnet-4-6
+    Description: Comma-separated models tried in order if the first one is unavailable.
+  BedrockRegion:
+    Type: String
+    Default: ''
+    Description: Region for Bedrock calls; empty means the stack region.
+  LocationMode:
+    Type: String
+    Default: amazon
+    AllowedValues: [amazon, estimate]
+    Description: amazon = Amazon Location truck routing; estimate = straight-line x 1.35.
+  KmPerLitre:
+    Type: Number
+    Default: 3
+    Description: Assumed fuel efficiency of the garbage truck, for diesel and CO2 estimates.
+  DemoTools:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Lets officers reset today's route (useful while recording the demo).
+  ManageSesIdentities:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Create the SES identities for SenderEmail/OfficerEmail. Set false if they are already verified in SES.
+
+Conditions:
+  HasSender: !Not [!Equals [!Ref SenderEmail, '']]
+  HasOfficer: !Not [!Equals [!Ref OfficerEmail, '']]
+  ManagesIdentities: !Equals [!Ref ManageSesIdentities, 'true']
+  CreateSenderIdentity: !And
+    - !Condition HasSender
+    - !Condition ManagesIdentities
+  CreateOfficerIdentity: !And
+    - !Condition HasOfficer
+    - !Condition ManagesIdentities
+    - !Not [!Equals [!Ref OfficerEmail, !Ref SenderEmail]]
+  HasBedrockRegion: !Not [!Equals [!Ref BedrockRegion, '']]
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    Handler: index.handler
+    MemorySize: 512
+    Timeout: 29
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        TABLE_NAME: !Ref DataTable
+        PHOTO_BUCKET: !Ref PhotosBucket
+        LANE_TOPIC_ARN: !Ref LaneAlertsTopic
+        SENDER_EMAIL: !Ref SenderEmail
+        APP_URL: !Sub https://main.${AmplifyApp.DefaultDomain}
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        BEDROCK_FALLBACK_MODEL_IDS: !Ref BedrockFallbackModelIds
+        BEDROCK_REGION: !If [HasBedrockRegion, !Ref BedrockRegion, !Ref AWS::Region]
+        LOCATION_MODE: !Ref LocationMode
+        KM_PER_LITRE: !Ref KmPerLitre
+        DEMO_TOOLS: !Ref DemoTools
+        NODE_OPTIONS: --enable-source-maps
+
+Resources:
+  # ---------------------------------------------------------------- Data
+  DataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+        - { AttributeName: gsi1pk, AttributeType: S }
+        - { AttributeName: gsi1sk, AttributeType: S }
+        - { AttributeName: gsi2pk, AttributeType: S }
+        - { AttributeName: gsi2sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: gsi1
+          KeySchema:
+            - { AttributeName: gsi1pk, KeyType: HASH }
+            - { AttributeName: gsi1sk, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: gsi2
+          KeySchema:
+            - { AttributeName: gsi2pk, KeyType: HASH }
+            - { AttributeName: gsi2sk, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  PhotosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [GET, POST]
+            AllowedOrigins: ['*']
+            AllowedHeaders: ['*']
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          # "Snap to sort" photos are only needed for the moment of sorting.
+          - Id: expire-sort-photos
+            Status: Enabled
+            Prefix: uploads/sort/
+            ExpirationInDays: 30
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
+
+  PhotosBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotosBucket
+      PolicyDocument:
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt PhotosBucket.Arn
+              - !Sub ${PhotosBucket.Arn}/*
+            Condition:
+              Bool: { 'aws:SecureTransport': 'false' }
+
+  # ---------------------------------------------------------------- Alerts
+  LaneAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub cleanloop-${Stage}-lane-alerts
+      DisplayName: CleanLoop
+
+  SenderIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: CreateSenderIdentity
+    Properties:
+      EmailIdentity: !Ref SenderEmail
+
+  OfficerIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: CreateOfficerIdentity
+    Properties:
+      EmailIdentity: !Ref OfficerEmail
+
+  # ---------------------------------------------------------------- Auth
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub cleanloop-${Stage}
+      UserPoolTier: LITE
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      AccountRecoverySetting:
+        RecoveryMechanisms: [{ Name: verified_email, Priority: 1 }]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: false
+      Schema:
+        - { Name: email, AttributeDataType: String, Required: true, Mutable: true }
+        - { Name: name, AttributeDataType: String, Required: false, Mutable: true }
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          StringAttributeConstraints: { MinLength: '1', MaxLength: '20' }
+      LambdaConfig:
+        PostConfirmation: !GetAtt PostConfirmationFunction.Arn
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailSubject: Your CleanLoop code
+        EmailMessage: 'Your CleanLoop verification code is {####}'
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub cleanloop-${Stage}-web
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: days }
+      ReadAttributes: [email, email_verified, name, phone_number, custom:role]
+      WriteAttributes: [email, name, phone_number, custom:role]
+
+  ResidentGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      { UserPoolId: !Ref UserPool, GroupName: resident, Precedence: 40, Description: Residents }
+  RecyclerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      {
+        UserPoolId: !Ref UserPool,
+        GroupName: recycler,
+        Precedence: 30,
+        Description: Kabadiwalas and recyclers,
+      }
+  DriverGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      {
+        UserPoolId: !Ref UserPool,
+        GroupName: driver,
+        Precedence: 20,
+        Description: Truck drivers (admin-created),
+      }
+  OfficerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      {
+        UserPoolId: !Ref UserPool,
+        GroupName: officer,
+        Precedence: 10,
+        Description: Ward officers (admin-created),
+      }
+
+  PostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Adds self-registered users to the resident or recycler group.
+      CodeUri: ../backend/dist/post-confirmation
+      MemorySize: 256
+      Timeout: 10
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: cognito-idp:AdminAddUserToGroup
+              # Wildcard avoids a circular dependency between the pool and its trigger.
+              Resource: !Sub arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/*
+
+  PostConfirmationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PostConfirmationFunction.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  # ---------------------------------------------------------------- API
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Description: CleanLoop API
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 25
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowHeaders: [authorization, content-type]
+        AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
+        MaxAge: 3600
+      Auth:
+        DefaultAuthorizer: CognitoJwt
+        Authorizers:
+          CognitoJwt:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+              audience: [!Ref UserPoolClient]
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: CleanLoop HTTP API (all routes).
+      CodeUri: ../backend/dist/api
+      MemorySize: 1024
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            { ApiId: !Ref HttpApi, Path: /health, Method: GET, Auth: { Authorizer: NONE } }
+        # Explicit methods (no ANY) so API Gateway answers CORS preflight itself.
+        Get:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: '/{proxy+}', Method: GET }
+        Post:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: '/{proxy+}', Method: POST }
+        Put:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: '/{proxy+}', Method: PUT }
+        Delete:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: '/{proxy+}', Method: DELETE }
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref DataTable }
+        - S3CrudPolicy: { BucketName: !Ref PhotosBucket }
+        - Statement:
+            - Sid: LaneAlerts
+              Effect: Allow
+              Action: [sns:Publish, sns:Subscribe]
+              Resource: !Ref LaneAlertsTopic
+            - Sid: LaneAlertUnsubscribe
+              Effect: Allow
+              Action: sns:Unsubscribe
+              Resource: !Sub ${LaneAlertsTopic}:*
+            - Sid: Email
+              Effect: Allow
+              Action: [ses:SendEmail, ses:SendRawEmail]
+              Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*
+            - Sid: ClaudeOnBedrock
+              Effect: Allow
+              Action:
+                [
+                  bedrock-mantle:CreateInference,
+                  bedrock:InvokeModel,
+                  bedrock:InvokeModelWithResponseStream,
+                ]
+              Resource: '*'
+            - Sid: RekognitionFallback
+              Effect: Allow
+              Action: rekognition:DetectLabels
+              Resource: '*'
+            - Sid: TruckRouting
+              Effect: Allow
+              Action: geo-routes:CalculateRoutes
+              Resource: !Sub arn:${AWS::Partition}:geo-routes:${AWS::Region}::provider/default
+
+  StopStreamFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: DynamoDB Streams -> lane alerts when a driver taps Done or Skip.
+      CodeUri: ../backend/dist/stream
+      Timeout: 60
+      Events:
+        StopChanges:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt DataTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 1
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["MODIFY"],"dynamodb":{"NewImage":{"entity":{"S":["STOP"]}}}}'
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref DataTable }
+        - SNSPublishMessagePolicy: { TopicName: !GetAtt LaneAlertsTopic.TopicName }
+
+  NightlyPlanFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Nightly risk scores, tomorrow's route order and savings.
+      CodeUri: ../backend/dist/nightly
+      Timeout: 300
+      Events:
+        Nightly:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(0 22 * * ? *)
+            ScheduleExpressionTimezone: Asia/Kolkata
+            Description: Plan tomorrow's routes at 22:00 IST
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref DataTable }
+        - Statement:
+            - Effect: Allow
+              Action: geo-routes:CalculateRoutes
+              Resource: !Sub arn:${AWS::Partition}:geo-routes:${AWS::Region}::provider/default
+
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: !Sub '/aws/lambda/${ApiFunction}', RetentionInDays: 14 }
+  StreamLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: !Sub '/aws/lambda/${StopStreamFunction}', RetentionInDays: 14 }
+  NightlyLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: !Sub '/aws/lambda/${NightlyPlanFunction}', RetentionInDays: 14 }
+  PostConfirmationLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      { LogGroupName: !Sub '/aws/lambda/${PostConfirmationFunction}', RetentionInDays: 14 }
+
+  # ---------------------------------------------------------------- Maps
+  MapsApiKey:
+    Type: AWS::Location::APIKey
+    Properties:
+      KeyName: !Sub cleanloop-${Stage}-maps
+      Description: Browser key for Amazon Location map tiles (read-only).
+      NoExpiry: true
+      # A never-expiring key can only be deleted (rollback, destroy) or re-restricted with these.
+      ForceDelete: true
+      ForceUpdate: true
+      Restrictions:
+        AllowActions: ['geo-maps:*']
+        AllowResources: [!Sub 'arn:${AWS::Partition}:geo-maps:${AWS::Region}::provider/default']
+        AllowReferers:
+          - !Sub https://main.${AmplifyApp.DefaultDomain}/*
+          - http://localhost:5173/*
+          - http://localhost:4173/*
+
+  # ---------------------------------------------------------------- Hosting
+  AmplifyApp:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub cleanloop-${Stage}
+      Description: CleanLoop progressive web app
+      Platform: WEB
+      CustomRules:
+        - Source: '</^[^.]+$|\.(?!(css|gif|html|ico|jpg|jpeg|js|png|txt|svg|webp|woff|woff2|ttf|map|json|webmanifest)$)([^.]+$)/>'
+          Target: /index.html
+          Status: '200'
+
+  AmplifyBranch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt AmplifyApp.AppId
+      BranchName: main
+      Stage: PRODUCTION
+
+  # ---------------------------------------------------------------- Monitoring
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub cleanloop-${Stage}
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type":"metric","x":0,"y":0,"width":12,"height":6,"properties":{"title":"Loop activity","region":"${AWS::Region}","stat":"Sum","period":3600,"view":"timeSeries",
+              "metrics":[["CleanLoop","ItemsSorted","Stage","${Stage}"],[".","ReportsFiled",".","."],[".","StopsDone",".","."],[".","LaneAlertsSent",".","."],[".","PickupsRequested",".","."],[".","PickupsCompleted",".","."]]}},
+            {"type":"metric","x":12,"y":0,"width":12,"height":6,"properties":{"title":"Planned km saved","region":"${AWS::Region}","stat":"Sum","period":86400,"view":"bar",
+              "metrics":[["CleanLoop","KmSavedPlanned","Stage","${Stage}"]]}},
+            {"type":"metric","x":0,"y":6,"width":12,"height":6,"properties":{"title":"Lambda errors","region":"${AWS::Region}","stat":"Sum","period":300,
+              "metrics":[["AWS/Lambda","Errors","FunctionName","${ApiFunction}"],["...","${StopStreamFunction}"],["...","${NightlyPlanFunction}"]]}},
+            {"type":"metric","x":12,"y":6,"width":12,"height":6,"properties":{"title":"API latency p95 (ms)","region":"${AWS::Region}","stat":"p95","period":300,
+              "metrics":[["AWS/Lambda","Duration","FunctionName","${ApiFunction}"]]}},
+            {"type":"metric","x":0,"y":12,"width":12,"height":6,"properties":{"title":"AI quality","region":"${AWS::Region}","stat":"Sum","period":3600,
+              "metrics":[["CleanLoop","LowConfidenceSorts","Stage","${Stage}"],[".","ManualSorts",".","."],[".","SortFailures",".","."],[".","HighSeverityReports",".","."]]}}
+          ]
+        }
+
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub cleanloop-${Stage}-api-errors
+      AlarmDescription: The API Lambda is throwing errors.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref ApiFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  Region:
+    Value: !Ref AWS::Region
+  ApiUrl:
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  AppUrl:
+    Value: !Sub https://main.${AmplifyApp.DefaultDomain}
+  AmplifyAppId:
+    Value: !GetAtt AmplifyApp.AppId
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  TableName:
+    Value: !Ref DataTable
+  PhotosBucketName:
+    Value: !Ref PhotosBucket
+  LaneTopicArn:
+    Value: !Ref LaneAlertsTopic
+  MapsApiKeyName:
+    Value: !Ref MapsApiKey
+  OfficerEmail:
+    Condition: HasOfficer
+    Value: !Ref OfficerEmail
+  DashboardUrl:
+    Value: !Sub https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=cleanloop-${Stage}

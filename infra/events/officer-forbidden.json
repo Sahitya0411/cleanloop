@@ -1,0 +1,15 @@
+{
+  "version": "2.0",
+  "routeKey": "GET /{proxy+}",
+  "rawPath": "/officer/overview",
+  "rawQueryString": "",
+  "headers": {},
+  "requestContext": {
+    "http": { "method": "GET", "path": "/officer/overview" },
+    "stage": "$default",
+    "authorizer": {
+      "jwt": { "claims": { "sub": "test-user", "cognito:groups": "[resident]" }, "scopes": null }
+    }
+  },
+  "isBase64Encoded": false
+}
