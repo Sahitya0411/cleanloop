@@ -1,0 +1,35 @@
+{
+  "name": "CleanLoop",
+  "short_name": "CleanLoop",
+  "description": "Sort right, track the truck, report bins and book recycler pickups.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F2F6F1",
+  "theme_color": "#1E5E3A",
+  "lang": "en-IN",
+  "categories": ["utilities", "lifestyle"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Snap to sort",
+      "url": "/resident/snap",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Report a bin",
+      "url": "/resident/report",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

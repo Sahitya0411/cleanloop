@@ -1,0 +1,997 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>CleanLoop</title>
+<meta name="description" content="CleanLoop closes the household-waste loop: snap to sort, live truck ETA, overflow reports and kabadiwala pickups. Built on AWS.">
+<meta name="theme-color" content="#1E5E3A">
+<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Sans:opsz,wght@9..40,400..700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one calm column (max 1160px) with very generous section rhythm; every section is one interactive demo of one step of the loop. Intro: a bin opens, the Earth rises out of it and zooms into the site. */
+:root{
+  --bg:#F2F6F1; --surface:#FFFFFF; --surface-2:#E6EEE7; --ink:#0F2419; --muted:#56695D; --line:#D5E0D7;
+  --forest:#1E5E3A; --on-forest:#FFFFFF; --leaf:#3E9E66; --mint:#DDEFE2;
+  --wet:#3E9E66; --dry:#2F7FC1; --san:#CF4F3B; --spec:#E2A031;
+  --alert:#CF4F3B; --warn:#E2A031; --ok:#3E9E66;
+  --intro-bg:#0B2416; --intro-ink:#EAF5EC;
+  --shadow:0 24px 60px -28px rgba(15,36,25,.35);
+  --display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body:"DM Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r-lg:28px; --r-md:18px; --r-sm:12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0B1510; --surface:#122019; --surface-2:#192B21; --ink:#E5EFE7; --muted:#94A99B; --line:#24382B;
+    --forest:#5BC189; --on-forest:#06140C; --leaf:#5BC189; --mint:#173526;
+    --shadow:0 24px 60px -28px rgba(0,0,0,.7); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0B1510; --surface:#122019; --surface-2:#192B21; --ink:#E5EFE7; --muted:#94A99B; --line:#24382B;
+  --forest:#5BC189; --on-forest:#06140C; --leaf:#5BC189; --mint:#173526;
+  --shadow:0 24px 60px -28px rgba(0,0,0,.7); color-scheme:dark;
+}
+*{box-sizing:border-box}
+html.lock{overflow:hidden}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--display);line-height:1.04;letter-spacing:-.02em;text-wrap:balance;margin:0}
+p{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:3px solid var(--leaf);outline-offset:3px;border-radius:8px}
+.wrap{max-width:1160px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
+section{padding-block:clamp(88px,12vw,160px)}
+.eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--leaf)}
+.lede{color:var(--muted);font-size:clamp(17px,1.6vw,19px);max-width:56ch}
+.sec-head{display:grid;gap:18px;margin-bottom:clamp(48px,6vw,80px);max-width:720px}
+.sec-head h2{font-size:clamp(36px,5.4vw,64px);font-weight:700}
+.btn{display:inline-flex;align-items:center;gap:10px;border:0;border-radius:999px;padding:15px 26px;font-weight:600;font-size:16px;text-decoration:none;transition:transform .2s,box-shadow .2s,background .2s}
+.btn-primary{background:var(--forest);color:var(--on-forest);box-shadow:0 12px 30px -14px var(--forest)}
+.btn-primary:hover{transform:translateY(-2px)}
+.btn-ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn-ghost:hover{border-color:var(--ink)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;padding:6px 11px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
+.pop{animation:pop .8s cubic-bezier(.2,.7,.2,1) both}
+@keyframes pop{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+
+/* ---------- INTRO ---------- */
+#intro{position:fixed;inset:0;z-index:100;background:var(--intro-bg);color:var(--intro-ink);display:grid;place-items:center;overflow:hidden}
+#intro[hidden]{display:none}
+#intro .glow{position:absolute;width:70vmax;height:70vmax;border-radius:50%;background:radial-gradient(circle,rgba(91,193,137,.22),transparent 60%);pointer-events:none}
+.stage{position:relative;width:220px;height:300px}
+.earth-wrap{position:absolute;left:45px;top:150px;width:130px;height:130px;z-index:1;opacity:0}
+.earth{width:100%;height:100%;border-radius:50%;overflow:hidden;position:relative;background:radial-gradient(circle at 34% 30%,#7fd0ff,#2a7fc8 55%,#0c3a66);box-shadow:0 0 50px rgba(127,208,255,.45)}
+.earth svg{position:absolute;top:0;left:0;height:100%;width:200%;animation:spin 7s linear infinite}
+.earth::after{content:"";position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.35),transparent 35%),radial-gradient(circle at 75% 80%,rgba(0,0,0,.45),transparent 55%)}
+@keyframes spin{to{transform:translateX(-50%)}}
+.bin{position:absolute;left:10px;bottom:0;width:200px;height:220px;z-index:2;overflow:visible}
+#lid{transform-box:view-box;transform-origin:190px 58px}
+.particle{position:absolute;left:110px;top:150px;width:10px;height:10px;border-radius:50% 0;z-index:3;pointer-events:none}
+@media (max-width:600px){.wordmark p{font-size:11px;letter-spacing:.12em}}
+.wordmark{position:absolute;left:50%;bottom:clamp(60px,12vh,120px);transform:translateX(-50%);text-align:center;display:grid;gap:10px;width:min(92vw,560px)}
+.wordmark h1{font-size:clamp(44px,9vw,84px);font-weight:800;color:var(--intro-ink)}
+.wordmark h1 span{display:inline-block;opacity:0}
+.wordmark p{font-family:var(--mono);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#9fd3b1;opacity:0}
+.skip{position:absolute;right:max(20px,env(safe-area-inset-right));bottom:calc(20px + env(safe-area-inset-bottom,0px));background:rgba(255,255,255,.08);color:var(--intro-ink);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:10px 18px;font-size:14px}
+.skip:hover{background:rgba(255,255,255,.16)}
+
+/* ---------- NAV ---------- */
+.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid transparent;transition:border-color .3s}
+.nav.scrolled{border-color:var(--line)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;height:72px}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:22px;color:var(--ink);text-decoration:none}
+.logo svg{width:30px;height:30px}
+.nav-links{display:flex;gap:32px;font-size:15px}
+.nav-links a{color:var(--muted);text-decoration:none}
+.nav-links a:hover{color:var(--ink)}
+.nav .btn{padding:11px 20px;font-size:14.5px;white-space:nowrap}
+@media (max-width:860px){.nav-links{display:none}}
+
+/* ---------- HERO ---------- */
+.hero{padding-block:clamp(56px,8vw,110px) clamp(88px,10vw,140px)}
+.hero .wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(48px,6vw,96px);align-items:center}
+.hero h1{font-size:clamp(48px,7.6vw,104px);font-weight:800}
+.hero h1 em{font-style:normal;color:var(--leaf)}
+.hero-copy{display:grid;gap:30px;min-width:0}
+.hero-verbs{display:flex;flex-wrap:wrap;gap:10px}
+.hero-verbs span{padding:8px 16px;border-radius:999px;border:1.5px solid var(--line);font-size:15px;color:var(--muted)}
+.hero-cta{display:flex;flex-wrap:wrap;gap:14px}
+.hero-meta{font-family:var(--mono);font-size:12.5px;color:var(--muted);letter-spacing:.04em}
+.phone-scene{perspective:1200px;display:grid;place-items:center}
+.phone{width:min(320px,100%);aspect-ratio:9/18.5;border-radius:44px;background:#0d1a12;padding:10px;box-shadow:var(--shadow),0 0 0 1.5px var(--line);transform-style:preserve-3d;transition:transform .25s ease-out}
+.screen{height:100%;border-radius:35px;background:#F7FAF6;color:#10241A;padding:22px 16px 16px;display:flex;flex-direction:column;gap:12px;overflow:hidden;font-size:12px}
+.screen .row{display:flex;justify-content:space-between;align-items:center}
+.scr-logo{display:flex;align-items:center;gap:6px;font-family:var(--display);font-weight:700;font-size:15px;color:#1E5E3A}
+.scr-logo svg{width:18px;height:18px}
+.scr-pill{background:#fff;border:1px solid #E1E9E2;border-radius:999px;padding:5px 10px;font-size:11px;color:#56695D}
+.scr-greet{font-family:var(--display);font-size:17px;font-weight:700}
+.scr-card{background:#fff;border-radius:16px;padding:12px;border:1px solid #E5ECE6}
+.wx{display:flex;justify-content:space-between;align-items:center}
+.wx b{font-family:var(--display);font-size:22px}
+.aqi{font-size:11px;color:#3E9E66;background:#E3F3E8;border-radius:999px;padding:4px 9px}
+.truck-card{background:linear-gradient(140deg,#E6F2E9,#F7FAF6);border:1px solid #D5E5D9}
+.truck-card .big{font-family:var(--display);font-size:24px;font-weight:800;color:#1E5E3A;margin-top:2px}
+.track{position:relative;height:22px;margin-top:10px}
+.track::before{content:"";position:absolute;left:0;right:0;top:10px;height:3px;border-radius:3px;background:#C9DCCD}
+.track .dot{position:absolute;top:6px;width:11px;height:11px;border-radius:50%;background:#fff;border:2.5px solid #1E5E3A}
+.track .mini-truck{position:absolute;top:-2px;left:0;width:26px;animation:drive 6s ease-in-out infinite alternate}
+@keyframes drive{from{left:0}to{left:calc(100% - 26px)}}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:auto}
+.actions div{border-radius:14px;padding:12px 6px;text-align:center;font-size:10.5px;font-weight:600;background:#fff;border:1px solid #E5ECE6;display:grid;gap:6px;justify-items:center}
+.actions div:first-child{background:#1E5E3A;color:#fff;border-color:#1E5E3A}
+.actions svg{width:20px;height:20px}
+@media (max-width:860px){.hero .wrap{grid-template-columns:1fr}.phone{width:min(300px,100%);aspect-ratio:auto;border-radius:40px}.screen{height:auto;border-radius:31px;padding-bottom:18px}.actions{margin-top:6px}}
+
+/* ---------- LOOP ---------- */
+#loop{overflow-x:clip}
+.loop-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(48px,7vw,110px);align-items:center}
+.ring{position:relative;width:100%;max-width:480px;aspect-ratio:1;margin-inline:auto}
+.ring svg.track-ring{position:absolute;inset:0;width:100%;height:100%}
+.orbit{position:absolute;inset:0;animation:orbit 16s linear infinite}
+.orbit .ot{position:absolute;left:50%;top:10%;width:34px;height:34px;transform:translate(-50%,-50%);background:var(--surface);border-radius:50%;display:grid;place-items:center;box-shadow:var(--shadow);border:1.5px solid var(--line)}
+.orbit .ot svg{width:20px;height:20px}
+@keyframes orbit{to{transform:rotate(360deg)}}
+.node{position:absolute;transform:translate(-50%,-50%);width:clamp(74px,11vw,96px);aspect-ratio:1;border-radius:50%;border:1.5px solid var(--line);background:var(--surface);display:grid;place-items:center;align-content:center;gap:4px;font-size:12.5px;font-weight:600;transition:transform .3s,background .3s,color .3s,border-color .3s;z-index:2}
+.node svg{width:26px;height:26px}
+.node:hover{transform:translate(-50%,-50%) scale(1.06)}
+.node[aria-pressed="true"]{background:var(--forest);color:var(--on-forest);border-color:var(--forest);transform:translate(-50%,-50%) scale(1.12)}
+.ring-center{position:absolute;inset:32%;border-radius:50%;display:grid;place-items:center;text-align:center;align-content:center;gap:2px}
+.ring-center b{font-family:var(--display);font-size:clamp(34px,5vw,52px);line-height:1}
+.ring-center span{font-size:13px;color:var(--muted)}
+.loop-panel{display:grid;gap:22px;min-width:0}
+.loop-panel h3{font-size:clamp(32px,4vw,46px)}
+.loop-panel p{color:var(--muted);font-size:18px;max-width:46ch}
+.aws-line{display:flex;flex-wrap:wrap;gap:8px}
+.step-dots{display:flex;gap:8px}
+.step-dots i{width:28px;height:4px;border-radius:4px;background:var(--line);transition:background .3s}
+.step-dots i.on{background:var(--forest)}
+@media (max-width:860px){.loop-grid{grid-template-columns:1fr}}
+
+/* ---------- SORT GAME ---------- */
+.band{background:var(--surface);border-block:1px solid var(--line)}
+.game{display:grid;grid-template-columns:.9fr 1.1fr;gap:clamp(40px,6vw,88px);align-items:start}
+.item-card{border-radius:var(--r-lg);background:var(--bg);border:1px solid var(--line);padding:clamp(28px,4vw,44px);display:grid;gap:24px;justify-items:center;text-align:center;position:relative;overflow:hidden;min-width:0}
+.item-icon{width:150px;height:150px;display:grid;place-items:center;border-radius:50%;background:var(--surface);box-shadow:var(--shadow)}
+.item-icon svg{width:96px;height:96px}
+.item-name{font-family:var(--display);font-size:30px;font-weight:700}
+.scanbar{position:absolute;left:0;right:0;height:3px;background:var(--leaf);box-shadow:0 0 18px var(--leaf);top:0;opacity:0}
+.scanning .scanbar{opacity:1;animation:scan 1s ease-in-out infinite alternate}
+@keyframes scan{from{top:8%}to{top:88%}}
+.score{display:flex;gap:18px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+.bins{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(10px,2vw,22px)}
+.binbtn{border:0;background:transparent;display:grid;gap:10px;justify-items:center;padding:10px 4px;border-radius:var(--r-md);transition:background .2s}
+.binbtn svg{width:100%;max-width:110px;height:auto;overflow:visible}
+.binbtn .blid{transform-box:view-box;transform-origin:96px 30px;transition:transform .45s cubic-bezier(.3,1.6,.5,1)}
+.binbtn.open .blid{transform:rotate(38deg)}
+@media (hover:hover){.binbtn:hover .blid{transform:rotate(38deg)}.binbtn:hover{background:var(--bg)}}
+.binbtn b{font-size:14.5px}
+.binbtn small{font-size:12px;color:var(--muted);line-height:1.3}
+.binbtn.right{background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.binbtn.wrong{background:color-mix(in srgb,var(--alert) 12%,transparent)}
+.result{margin-top:28px;border-radius:var(--r-md);border:1px solid var(--line);padding:24px;display:grid;gap:12px;background:var(--bg);min-height:150px}
+.result .verdict{font-family:var(--display);font-size:24px;font-weight:700}
+.result .ai{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.stream{font-family:var(--mono);font-size:12px;padding:6px 11px;border-radius:999px;color:#fff;font-weight:500}
+.result .tip{color:var(--muted)}
+.result .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.game-btns{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+.flyer{position:fixed;z-index:90;pointer-events:none}
+.flyer svg{width:100%;height:100%}
+@media (max-width:860px){.game{grid-template-columns:1fr}}
+@media (max-width:480px){.bins{grid-template-columns:repeat(2,1fr)}}
+
+/* ---------- ETA SIM ---------- */
+.sim{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,48px)}
+.panel{border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--line);padding:clamp(24px,3.4vw,40px);display:grid;gap:22px;align-content:start;min-width:0}
+.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.panel-head h3{font-size:24px}
+.progress{height:8px;border-radius:8px;background:var(--surface-2);overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:var(--forest);transition:width .5s}
+.stops{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.stops li{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:14px;border:1px solid transparent;transition:background .3s,border-color .3s}
+.stops li .st{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:12px;flex:none;border:1.5px solid var(--line);color:var(--muted)}
+.stops li.done .st{background:var(--ok);border-color:var(--ok);color:#fff}
+.stops li.skipped .st{background:var(--warn);border-color:var(--warn);color:#fff}
+.stops li.current{background:var(--mint);border-color:color-mix(in srgb,var(--leaf) 40%,transparent)}
+.stops li .nm{flex:1;min-width:0}
+.stops li .tm{font-family:var(--mono);font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.stops li .you{font-size:11px;font-family:var(--mono);color:var(--leaf);margin-left:6px}
+.drv-btns{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.drv-btns button{border:0;border-radius:18px;padding:20px;font-weight:700;font-size:18px}
+.b-done{background:var(--forest);color:var(--on-forest)}
+.b-skip{background:var(--surface-2);color:var(--ink)}
+.drv-btns button:disabled{opacity:.4;cursor:not-allowed}
+.res-big{font-family:var(--display);font-size:clamp(40px,5vw,60px);font-weight:800;line-height:1;color:var(--forest)}
+.res-sub{color:var(--muted)}
+.res-track{position:relative;height:56px}
+.res-track .line{position:absolute;left:12px;right:12px;top:27px;height:4px;border-radius:4px;background:var(--surface-2)}
+.res-track .stopdot{position:absolute;top:21px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--line);transform:translateX(-50%);transition:border-color .3s,background .3s}
+.res-track .stopdot.passed{border-color:var(--ok);background:var(--ok)}
+.res-track .stopdot.mine{width:24px;height:24px;top:17px;border-color:var(--forest)}
+.res-track .rtruck{position:absolute;top:-2px;width:40px;transform:translateX(-50%);transition:left .7s cubic-bezier(.4,1.4,.5,1)}
+.feed{display:grid;gap:10px;max-height:220px;overflow:auto}
+.feed div{font-size:14.5px;padding:12px 14px;border-radius:12px;background:var(--bg);border:1px solid var(--line);animation:pop .5s both}
+.feed div b{font-weight:600}
+.feed div time{font-family:var(--mono);font-size:12px;color:var(--muted);margin-right:8px}
+.linkbtn{background:none;border:0;color:var(--leaf);font-weight:600;padding:0;text-decoration:underline;text-underline-offset:3px}
+@media (max-width:860px){.sim{grid-template-columns:1fr}}
+
+/* ---------- RISK ---------- */
+.risk{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,48px)}
+.ctrl{display:grid;gap:8px}
+.ctrl label{display:flex;justify-content:space-between;gap:12px;font-weight:600;font-size:15.5px}
+.ctrl label span{font-family:var(--mono);font-weight:500;font-size:13px;color:var(--muted);white-space:nowrap}
+.ctrl small{color:var(--muted);font-size:13px}
+input[type=range]{width:100%;accent-color:var(--forest);height:28px}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:600;font-size:15.5px}
+.switch{position:relative;width:52px;height:30px;border-radius:999px;background:var(--surface-2);border:1.5px solid var(--line);flex:none;transition:background .25s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:var(--surface);box-shadow:0 2px 6px rgba(0,0,0,.2);transition:transform .25s}
+.switch[aria-checked="true"]{background:var(--forest);border-color:var(--forest)}
+.switch[aria-checked="true"]::after{transform:translateX(22px)}
+.gauge{display:grid;justify-items:center;gap:6px}
+.gauge svg{width:min(280px,100%);height:auto}
+.gauge .num{font-family:var(--display);font-size:64px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;margin-top:-70px}
+.lvl{font-family:var(--mono);font-size:12.5px;padding:6px 12px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.08em}
+.route{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.route li{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:var(--bg);border:1px solid var(--line)}
+.route li.me{border-color:var(--forest);background:var(--mint)}
+.route li .ix{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.route li .sc{font-family:var(--mono);font-size:12.5px;padding:4px 9px;border-radius:999px;color:#fff;font-variant-numeric:tabular-nums}
+.route li.deferred{opacity:.55}
+.route li.deferred .nm::after{content:" · deferred";font-size:12.5px;color:var(--muted)}
+@media (max-width:860px){.risk{grid-template-columns:1fr}}
+
+/* ---------- ROLES ---------- */
+.roles{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.role{border-radius:var(--r-lg);border:1px solid var(--line);background:var(--surface);padding:30px 26px;display:grid;gap:16px;align-content:start;transition:transform .3s,box-shadow .3s}
+.role:hover{transform:translateY(-6px);box-shadow:var(--shadow)}
+.role .ic{width:52px;height:52px;border-radius:16px;background:var(--mint);display:grid;place-items:center;color:var(--forest)}
+.role .ic svg{width:26px;height:26px}
+.role h3{font-size:24px}
+.role .dev{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.role ul{margin:0;padding:0;list-style:none;display:grid;gap:10px;font-size:15px;color:var(--muted)}
+.role li{display:flex;gap:10px}
+.role li::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--leaf);margin-top:9px}
+@media (max-width:1000px){.roles{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:560px){.roles{grid-template-columns:1fr}}
+
+/* ---------- IMPACT ---------- */
+.impact{background:var(--intro-bg);color:var(--intro-ink)}
+.impact .eyebrow{color:#7fd3a0}
+.impact .lede{color:#a9c7b2}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(24px,4vw,56px)}
+.stat{display:grid;gap:10px;border-top:1px solid rgba(255,255,255,.16);padding-top:28px}
+.stat b{font-family:var(--display);font-size:clamp(56px,8vw,104px);font-weight:800;line-height:.95;font-variant-numeric:tabular-nums}
+.stat b small{font-size:.38em;font-weight:600;margin-left:6px;color:#9fd3b1}
+.stat span{color:#a9c7b2}
+.assume{margin-top:48px;font-family:var(--mono);font-size:12.5px;color:#86a891}
+@media (max-width:700px){.stats{grid-template-columns:1fr}}
+
+/* ---------- AWS ---------- */
+.aws{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.svc{border-radius:var(--r-md);border:1px solid var(--line);padding:20px 22px;display:grid;gap:6px;background:var(--surface);transition:border-color .25s,transform .25s}
+.svc:hover{border-color:var(--forest);transform:translateY(-3px)}
+.svc b{font-size:16px}
+.svc span{font-size:14px;color:var(--muted);line-height:1.45}
+.fallback{margin-top:56px;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.fallback .fb{padding:10px 16px;border-radius:999px;border:1.5px solid var(--line);font-size:14px;background:var(--surface)}
+.fallback .fb.last{border-color:var(--warn)}
+.fallback .arr{color:var(--muted)}
+@media (max-width:600px){.fallback{flex-direction:column;align-items:flex-start;gap:8px}.fallback .arr{transform:rotate(90deg);margin-left:20px}}
+
+/* ---------- FOOTER ---------- */
+.cta-end{text-align:center;display:grid;gap:28px;justify-items:center}
+.cta-end h2{font-size:clamp(40px,6.4vw,84px);font-weight:800;max-width:14ch}
+footer{border-top:1px solid var(--line);padding-block:40px}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:center;color:var(--muted);font-size:14px}
+
+/* ---------- TOAST ---------- */
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translate(-50%,140%);background:var(--ink);color:var(--bg);padding:14px 20px;border-radius:16px;display:flex;gap:12px;align-items:center;font-size:15px;z-index:80;transition:transform .45s cubic-bezier(.3,1.4,.5,1);max-width:calc(100% - 32px);box-shadow:var(--shadow)}
+.toast{opacity:0;visibility:hidden}
+.toast.show{transform:translate(-50%,0);opacity:1;visibility:visible}
+.toast svg{width:22px;height:22px;flex:none}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+</style>
+
+<!-- ============ INTRO ============ -->
+<div id="intro" role="dialog" aria-label="CleanLoop intro">
+  <div class="glow"></div>
+  <div class="stage" id="stage">
+    <div class="earth-wrap" id="earthWrap">
+      <div class="earth">
+        <svg viewBox="0 0 520 130" preserveAspectRatio="none" aria-hidden="true">
+          <g fill="#4FBF6F">
+            <path d="M20 30c18-14 50-12 62 4 10 14-4 26 6 40 8 12-6 26-24 22-16-4-20-20-34-26C14 64 4 44 20 30z"/>
+            <path d="M120 70c14-8 36-4 42 10 6 16-10 34-28 30-16-4-28-30-14-40z"/>
+            <path d="M150 18c20-8 52-4 58 10 4 12-14 16-30 14-18-2-42-16-28-24z"/>
+            <path d="M198 58c16-6 30 4 30 18s-14 22-26 16-18-28-4-34z"/>
+            <g transform="translate(260 0)">
+              <path d="M20 30c18-14 50-12 62 4 10 14-4 26 6 40 8 12-6 26-24 22-16-4-20-20-34-26C14 64 4 44 20 30z"/>
+              <path d="M120 70c14-8 36-4 42 10 6 16-10 34-28 30-16-4-28-30-14-40z"/>
+              <path d="M150 18c20-8 52-4 58 10 4 12-14 16-30 14-18-2-42-16-28-24z"/>
+              <path d="M198 58c16-6 30 4 30 18s-14 22-26 16-18-28-4-34z"/>
+            </g>
+          </g>
+          <g fill="#fff" opacity=".55">
+            <ellipse cx="90" cy="100" rx="30" ry="5"/><ellipse cx="230" cy="40" rx="22" ry="4"/>
+            <ellipse cx="350" cy="100" rx="30" ry="5"/><ellipse cx="490" cy="40" rx="22" ry="4"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <svg class="bin" viewBox="0 0 200 220" aria-hidden="true">
+      <defs>
+        <linearGradient id="bg1" x1="0" x2="1"><stop offset="0" stop-color="#2A7A4C"/><stop offset=".55" stop-color="#1E5E3A"/><stop offset="1" stop-color="#164A2D"/></linearGradient>
+      </defs>
+      <path d="M22 64H178L164 210Q163 218 155 218H45Q37 218 36 210Z" fill="url(#bg1)"/>
+      <g stroke="#14462A" stroke-width="3" stroke-linecap="round" opacity=".7"><path d="M62 82 68 200"/><path d="M138 82 132 200"/></g>
+      <g transform="translate(100 140)" fill="none" stroke="#BDEBCB" stroke-width="7" stroke-linecap="round">
+        <path d="M-22 -8A24 24 0 0 1 20 -12"/><path d="M22 8A24 24 0 0 1 -18 14"/>
+        <path d="M14 -22 22 -12 10 -6" stroke-width="6"/><path d="M-12 22 -20 12 -8 6" stroke-width="6"/>
+      </g>
+      <g id="lid">
+        <rect x="80" y="30" width="40" height="14" rx="6" fill="#164A2D"/>
+        <rect x="10" y="42" width="180" height="18" rx="7" fill="#2A7A4C"/>
+        <rect x="10" y="54" width="180" height="6" rx="3" fill="#14462A"/>
+      </g>
+    </svg>
+  </div>
+  <div class="wordmark">
+    <h1 id="wm" aria-label="CleanLoop"></h1>
+    <p id="wmTag">Sort right · Stay informed · Make an impact</p>
+  </div>
+  <button class="skip" id="skip" type="button">Skip intro</button>
+</div>
+
+<!-- ============ NAV ============ -->
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="CleanLoop home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4a12 12 0 1 0 11.3 8" fill="none" stroke="var(--forest)" stroke-width="3.2" stroke-linecap="round"/><path d="M27.5 4.5c-6 0-10 3-10.5 9 5.5.4 9.6-3 10.5-9z" fill="var(--leaf)"/></svg>
+      CleanLoop
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#loop">The loop</a><a href="#sort">Snap to Sort</a><a href="#truck">Truck ETA</a><a href="#predict">Predict</a><a href="#aws">Built on AWS</a>
+    </nav>
+    <a class="btn btn-primary" href="/login">Open the app</a>
+  </div>
+</header>
+
+<main id="top">
+<!-- ============ HERO ============ -->
+<section class="hero" id="hero">
+  <div class="wrap">
+    <div class="hero-copy">
+      <span class="eyebrow">Ward 140 · Rohini, Delhi</span>
+      <h1>Cleaner cities, <em>smarter</em> together.</h1>
+      <p class="lede">One app that closes the household-waste loop. Residents sort right and know when the truck comes. Drivers run smarter routes. Officers fix what's overflowing. Kabadiwalas get the pickups.</p>
+      <div class="hero-verbs"><span>Sort right</span><span>Stay informed</span><span>Report issues</span><span>Request pickups</span></div>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#sort">Play Snap to Sort
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        <a class="btn btn-ghost" href="#truck">Drive the truck</a>
+        <a class="btn btn-ghost" href="/login">Open the app</a>
+      </div>
+      <p class="hero-meta">Team Git Happens · Environmental Hacks 2026 · Track 03: Waste and Energy</p>
+    </div>
+    <div class="phone-scene" id="phoneScene">
+      <div class="phone" id="phone">
+        <div class="screen">
+          <div class="row">
+            <span class="scr-logo"><svg viewBox="0 0 32 32"><path d="M16 4a12 12 0 1 0 11.3 8" fill="none" stroke="#1E5E3A" stroke-width="3.6" stroke-linecap="round"/><path d="M27.5 4.5c-6 0-10 3-10.5 9 5.5.4 9.6-3 10.5-9z" fill="#3E9E66"/></svg>CleanLoop</span>
+            <span class="scr-pill">DTU, Ward 140</span>
+          </div>
+          <div><div class="scr-greet">Good morning</div><div style="color:#56695D">A cleaner Delhi starts with you</div></div>
+          <div class="scr-card wx">
+            <div><b>28°C</b><div style="color:#56695D">Clear</div></div>
+            <span class="aqi">Air quality · Good</span>
+          </div>
+          <div class="scr-card truck-card">
+            <div style="color:#56695D;font-weight:600">Garbage truck · 3 stops away</div>
+            <div class="big">~ 25 min</div>
+            <div class="track">
+              <span class="dot" style="left:0"></span><span class="dot" style="left:32%"></span><span class="dot" style="left:64%"></span><span class="dot" style="right:0;background:#1E5E3A"></span>
+              <svg class="mini-truck" viewBox="0 0 40 24"><rect x="2" y="4" width="22" height="14" rx="3" fill="#1E5E3A"/><path d="M24 8h8l6 6v4H24z" fill="#3E9E66"/><circle cx="10" cy="20" r="3.5" fill="#10241A"/><circle cx="31" cy="20" r="3.5" fill="#10241A"/></svg>
+            </div>
+          </div>
+          <div class="actions">
+            <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/><path d="M9 6l1.5-2h3L15 6"/></svg>Snap to Sort</div>
+            <div><svg viewBox="0 0 24 24" fill="none" stroke="#CF4F3B" stroke-width="2"><path d="M5 7h14l-1.4 13H6.4z"/><path d="M3 7h18M10 4h4"/></svg>Report a Bin</div>
+            <div><svg viewBox="0 0 24 24" fill="none" stroke="#3E9E66" stroke-width="2"><path d="M4 8l8-4 8 4-8 4z"/><path d="M4 8v8l8 4 8-4V8"/></svg>Request Pickup</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LOOP ============ -->
+<section id="loop" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">The loop</span>
+      <h2>Five steps. Each one feeds the next.</h2>
+      <p class="lede">A skipped stop becomes a report. A report becomes tomorrow's risk. A sorted bottle becomes a kabadiwala's pickup. Tap a step.</p>
+    </div>
+    <div class="loop-grid">
+      <div class="ring reveal" id="ring">
+        <svg class="track-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="var(--line)" stroke-width=".6"/>
+          <circle id="ringProg" cx="50" cy="50" r="40" fill="none" stroke="var(--leaf)" stroke-width="1.1" stroke-linecap="round" stroke-dasharray="0 251.3" transform="rotate(-90 50 50)" style="transition:stroke-dasharray .7s"/>
+        </svg>
+        <div class="orbit" aria-hidden="true"><div class="ot"><svg viewBox="0 0 40 24"><rect x="2" y="4" width="22" height="14" rx="3" fill="var(--forest)"/><path d="M24 8h8l6 6v4H24z" fill="var(--leaf)"/><circle cx="10" cy="20" r="3.5" fill="var(--ink)"/><circle cx="31" cy="20" r="3.5" fill="var(--ink)"/></svg></div></div>
+        <div class="ring-center"><b id="ringNum">1</b><span>of 5</span></div>
+      </div>
+      <div class="loop-panel reveal" aria-live="polite">
+        <div class="step-dots" id="stepDots"><i></i><i></i><i></i><i></i><i></i></div>
+        <h3 id="lpTitle">Sort</h3>
+        <p id="lpText"></p>
+        <div class="aws-line" id="lpAws"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SORT GAME ============ -->
+<section id="sort" class="band">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Snap to Sort · try it</span>
+      <h2>Wet, dry, sanitary or special care?</h2>
+      <p class="lede">India's waste rules ask every home to split waste four ways. Most people guess. Pick a bin, then see what Claude on Amazon Bedrock would tell you.</p>
+    </div>
+    <div class="game">
+      <div class="item-card reveal" id="itemCard">
+        <div class="scanbar"></div>
+        <div class="score"><span id="scoreTxt">Score 0 / 0</span><span id="itemCount">Item 1 of 8</span></div>
+        <div class="item-icon" id="itemIcon"></div>
+        <div class="item-name" id="itemName">Plastic bottle</div>
+        <div class="game-btns">
+          <button class="btn btn-ghost" id="askAI" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/></svg>
+            Let Claude sort it</button>
+        </div>
+      </div>
+      <div class="reveal">
+        <div class="bins" id="bins"></div>
+        <div class="result" id="result" aria-live="polite">
+          <div class="verdict">Your turn.</div>
+          <p class="tip">Tap the bin you think this goes in. The lid opens when you hover.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TRUCK ETA ============ -->
+<section id="truck">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Truck ETA · try it</span>
+      <h2>You drive. Lane 4 finds out.</h2>
+      <p class="lede">The driver taps Done or Skip. That tap updates every lane's ETA, and Lane 4 gets an alert when the truck is two stops away.</p>
+    </div>
+    <div class="sim">
+      <div class="panel reveal">
+        <div class="panel-head"><h3>Today's route</h3><span class="chip" id="stopCount">0/6 stops</span></div>
+        <div class="progress"><i id="prog"></i></div>
+        <ul class="stops" id="stops"></ul>
+        <div class="drv-btns">
+          <button class="b-done" id="bDone" type="button">Done</button>
+          <button class="b-skip" id="bSkip" type="button">Skip</button>
+        </div>
+      </div>
+      <div class="panel reveal">
+        <div class="panel-head"><h3>Resident · Lane 4, Pocket D</h3><button class="linkbtn" id="resetSim" type="button">Reset</button></div>
+        <div>
+          <div class="res-big" id="resBig">3 stops away</div>
+          <div class="res-sub" id="resSub">About 25 min</div>
+        </div>
+        <div class="res-track" id="resTrack"><div class="line"></div></div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:12px">Alerts</div>
+          <div class="feed" id="feed"><div><time>10:00</time>Route started. You'll get a heads-up before the truck reaches your lane.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PREDICT ============ -->
+<section id="predict" class="band">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Overflow risk · try it</span>
+      <h2>Tomorrow's overflow, predicted tonight.</h2>
+      <p class="lede">At 22:00 IST every lane gets a risk score from 0 to 100. Change the signals for Lane 3, Pocket C and watch tomorrow's route reorder.</p>
+    </div>
+    <div class="risk">
+      <div class="panel reveal" style="gap:28px">
+        <div class="ctrl"><label for="rReports">Past overflow reports, same weekday <span id="vReports"></span></label><input type="range" id="rReports" min="0" max="3" step="1" value="1"><small>30% of the score · maxes out at 2</small></div>
+        <div class="ctrl"><label for="rDays">Days since last pickup <span id="vDays"></span></label><input type="range" id="rDays" min="0" max="5" step="1" value="2"><small>25% · maxes out at 3 days</small></div>
+        <div class="ctrl"><label for="rMissed">Missed or skipped stops, last 7 days <span id="vMissed"></span></label><input type="range" id="rMissed" min="0" max="3" step="1" value="1"><small>20% · maxes out at 2</small></div>
+        <div class="ctrl"><label for="rRain">Rain forecast <span id="vRain"></span></label><input type="range" id="rRain" min="0" max="15" step="1" value="6"><small>15% · wet waste gets heavy · maxes out at 10 mm</small></div>
+        <div class="toggle"><span id="mkLbl">Market day or festival <small style="display:block;color:var(--muted);font-weight:400;font-size:13px">10%</small></span><button class="switch" id="rMarket" role="switch" aria-checked="false" aria-labelledby="mkLbl" type="button"></button></div>
+      </div>
+      <div class="panel reveal">
+        <div class="gauge">
+          <svg viewBox="0 0 220 124" aria-hidden="true">
+            <path d="M20 112A90 90 0 0 1 200 112" fill="none" stroke="var(--surface-2)" stroke-width="16" stroke-linecap="round"/>
+            <path id="gArc" d="M20 112A90 90 0 0 1 200 112" fill="none" stroke="var(--warn)" stroke-width="16" stroke-linecap="round" stroke-dasharray="0 283" style="transition:stroke-dasharray .5s,stroke .3s"/>
+          </svg>
+          <div class="num" id="gNum">0</div>
+          <span class="lvl" id="gLvl">medium</span>
+        </div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:14px">Tomorrow's route</div>
+          <ol class="route" id="route"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ROLES ============ -->
+<section id="roles">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">One app, four people</span>
+      <h2>Everyone sees the screen they need.</h2>
+    </div>
+    <div class="roles">
+      <article class="role reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></div>
+        <div><h3>Resident</h3><div class="dev">Phone · English / हिन्दी</div></div>
+        <ul><li>Snap to Sort with a one-line tip</li><li>Live truck ETA and lane alerts</li><li>Report a bin and track it to Resolved</li><li>Request a recycler pickup</li></ul>
+      </article>
+      <article class="role reveal">
+        <div class="ic"><svg viewBox="0 0 40 24" fill="currentColor"><rect x="2" y="4" width="22" height="14" rx="3"/><path d="M24 8h8l6 6v4H24z" opacity=".6"/><circle cx="10" cy="20" r="3.5"/><circle cx="31" cy="20" r="3.5"/></svg></div>
+        <div><h3>Driver</h3><div class="dev">Phone · big buttons · Hindi first</div></div>
+        <ul><li>Today's stops in order</li><li>Huge Done and Skip buttons</li><li>Map with one-tap navigation</li><li>Lanes deferred today</li></ul>
+      </article>
+      <article class="role reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 12l3-3 2 2 4-4"/></svg></div>
+        <div><h3>Ward officer</h3><div class="dev">Laptop dashboard</div></div>
+        <ul><li>Reports ranked by AI severity</li><li>Resolve with an after-photo</li><li>Tomorrow's risk per lane</li><li>km, diesel and CO₂ saved</li></ul>
+      </article>
+      <article class="role reveal">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 19H4l3-5M17 19h3l-3-5M12 4l-2 3.5M12 4l2 3.5M8 12l-2-3h12l-2 3"/></svg></div>
+        <div><h3>Recycler</h3><div class="dev">Phone · kabadiwala shop</div></div>
+        <ul><li>Set materials and ₹/kg rates</li><li>Nearby requests, "Matched to you"</li><li>First to accept wins the job</li><li>Call, map, mark done</li></ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ IMPACT ============ -->
+<section class="impact" id="impact">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Savings vs the fixed route</span>
+      <h2>Same ward. Smarter route.</h2>
+      <p class="lede">Amazon Location truck routing measures the old route and the new one the same way, so the comparison is fair.</p>
+    </div>
+    <div class="stats">
+      <div class="stat reveal"><b data-count="12.4">12.4<small>km</small></b><span>Distance saved</span></div>
+      <div class="stat reveal"><b data-count="4.1">4.1<small>L</small></b><span>Diesel saved</span></div>
+      <div class="stat reveal"><b data-count="11.0">11.0<small>kg</small></b><span>CO₂ saved</span></div>
+    </div>
+    <p class="assume">Demo ward estimate · assumes 3 km per litre and 2.68 kg CO₂ per litre of diesel</p>
+  </div>
+</section>
+
+<!-- ============ AWS ============ -->
+<section id="aws">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow">Built on AWS · ap-south-1, Mumbai</span>
+      <h2>14 services. One deploy command.</h2>
+      <p class="lede">The whole stack lives in one AWS SAM template, and <code style="font-family:var(--mono);font-size:.9em">npm run deploy</code> puts it live.</p>
+    </div>
+    <div class="aws">
+      <div class="svc reveal"><b>Amazon Bedrock</b><span>Claude sorts items and scores bin severity, in English or Hindi</span></div>
+      <div class="svc reveal"><b>Rekognition</b><span>Fallback sorter if no Claude model answers</span></div>
+      <div class="svc reveal"><b>Lambda</b><span>Every API route, the stream worker and the nightly planner</span></div>
+      <div class="svc reveal"><b>API Gateway</b><span>HTTP API with a JWT authorizer</span></div>
+      <div class="svc reveal"><b>DynamoDB + Streams</b><span>One table; a stop's status change fires the alerts</span></div>
+      <div class="svc reveal"><b>S3</b><span>Photos uploaded straight from the phone</span></div>
+      <div class="svc reveal"><b>SNS</b><span>Lane alerts, one filter policy per lane</span></div>
+      <div class="svc reveal"><b>SES</b><span>Officer emails with the photo inline</span></div>
+      <div class="svc reveal"><b>EventBridge Scheduler</b><span>Risk and route planning at 22:00 IST</span></div>
+      <div class="svc reveal"><b>Amazon Location</b><span>Truck routing and map tiles</span></div>
+      <div class="svc reveal"><b>Cognito</b><span>Sign-in with four role groups</span></div>
+      <div class="svc reveal"><b>Amplify Hosting</b><span>The installable web app</span></div>
+      <div class="svc reveal"><b>CloudWatch</b><span>Logs, metrics, dashboard and alarm</span></div>
+      <div class="svc reveal"><b>AWS SAM</b><span>All of it as code, in one template</span></div>
+    </div>
+    <div class="fallback reveal" aria-label="AI fallback chain">
+      <span class="eyebrow" style="margin-right:8px">If a model is down</span>
+      <span class="fb">Claude Opus 5.5</span><span class="arr">→</span>
+      <span class="fb">Claude Haiku 4.5</span><span class="arr">→</span>
+      <span class="fb">Claude Sonnet 4.6</span><span class="arr">→</span>
+      <span class="fb">Rekognition + rules</span><span class="arr">→</span>
+      <span class="fb last">Officer still gets the report</span>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="end">
+  <div class="wrap cta-end reveal">
+    <span class="eyebrow">Less waste · Cleaner streets · Greener tomorrows</span>
+    <h2>Close the loop on your ward.</h2>
+    <div class="hero-cta" style="justify-content:center">
+      <a class="btn btn-primary" href="/login">Open the app</a>
+      <a class="btn btn-ghost" href="#sort">Sort something</a>
+      <button class="btn btn-ghost" id="replay" type="button">Replay intro</button>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>CleanLoop · Team Git Happens</span>
+    <span>Environmental Hacks 2026 · Bharat Builds Tour · WeMakeDevs × AWS</span>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>
+  <span id="toastTxt"></span>
+</div>
+
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ================= INTRO ================= */
+const intro = $('#intro'), stage = $('#stage'), earthWrap = $('#earthWrap'), lid = $('#lid');
+const wm = $('#wm'), wmTag = $('#wmTag');
+let introDone = false, running = [];
+function buildWordmark(){ wm.innerHTML = ''; 'CleanLoop'.split('').forEach(ch => { const s = document.createElement('span'); s.textContent = ch; wm.appendChild(s); }); }
+function anim(el, kf, opts){ const a = el.animate(kf, Object.assign({fill:'forwards'}, opts)); running.push(a); return a.finished.catch(() => {}); }
+function burst(){
+  const colors = ['#5BC189','#BDEBCB','#7fd0ff','#E2A031','#3E9E66'];
+  for (let i = 0; i < 26; i++){
+    const p = document.createElement('div'); p.className = 'particle';
+    p.style.background = colors[i % colors.length];
+    const s = 6 + Math.random()*10; p.style.width = p.style.height = s + 'px';
+    stage.appendChild(p);
+    const ang = (-Math.PI/2) + (Math.random()-.5)*Math.PI*1.3, d = 120 + Math.random()*220;
+    const a = p.animate([{transform:'translate(0,0) rotate(0)',opacity:1},{transform:`translate(${Math.cos(ang)*d}px,${Math.sin(ang)*d}px) rotate(${Math.random()*540}deg)`,opacity:0}],{duration:1100+Math.random()*700,easing:'cubic-bezier(.15,.7,.3,1)',fill:'forwards'});
+    a.finished.then(() => p.remove()).catch(() => p.remove());
+  }
+}
+async function playIntro(){
+  introDone = false; running = [];
+  document.documentElement.classList.add('lock');
+  intro.hidden = false; intro.style.opacity = 1;
+  buildWordmark();
+  earthWrap.style.opacity = 0; earthWrap.style.transform = ''; stage.querySelector('.bin').getAnimations().forEach(a=>a.cancel()); lid.style.transform = '';
+  wmTag.style.opacity = 0;
+  if (reduce){ endIntro(); return; }
+  // 1. bin drops in
+  await anim(stage, [{transform:'translateY(-120vh) rotate(-8deg)'},{transform:'translateY(18px) rotate(3deg)',offset:.75},{transform:'translateY(0) rotate(0)'}], {duration:900, easing:'cubic-bezier(.3,.8,.3,1)'});
+  if (introDone) return;
+  // 2. it rumbles
+  await anim(stage, [{transform:'rotate(0)'},{transform:'rotate(-4deg)'},{transform:'rotate(4deg)'},{transform:'rotate(-3deg)'},{transform:'rotate(2deg)'},{transform:'rotate(0)'}], {duration:520});
+  if (introDone) return;
+  // 3. lid flips, burst, earth rises
+  anim(lid, [{transform:'rotate(0)'},{transform:'rotate(128deg)'}], {duration:520, easing:'cubic-bezier(.3,1.6,.5,1)'});
+  await sleep(160); if (introDone) return;
+  burst();
+  earthWrap.style.opacity = 1;
+  anim(earthWrap, [{transform:'translateY(40px) scale(.45)'},{transform:'translateY(-210px) scale(1.08)',offset:.7},{transform:'translateY(-190px) scale(1)'}], {duration:1100, easing:'cubic-bezier(.2,.9,.3,1)'});
+  [...wm.children].forEach((s,i) => anim(s, [{opacity:0,transform:'translateY(30px)'},{opacity:1,transform:'none'}], {duration:500, delay:250+i*55, easing:'cubic-bezier(.2,.8,.2,1)'}));
+  anim(wmTag, [{opacity:0},{opacity:1}], {duration:600, delay:900});
+  await sleep(2100); if (introDone) return;
+  // 4. earth swallows the screen
+  const r = earthWrap.getBoundingClientRect();
+  const need = Math.hypot(innerWidth, innerHeight) / r.width * 2.2;
+  anim(wm.parentElement, [{opacity:1},{opacity:0}], {duration:300});
+  anim(stage.querySelector('.bin'), [{opacity:1},{opacity:0}], {duration:350});
+  await anim(earthWrap, [{transform:'translateY(-190px) scale(1)'},{transform:`translateY(-190px) scale(${need})`}], {duration:900, easing:'cubic-bezier(.7,0,.3,1)'});
+  if (introDone) return;
+  endIntro();
+}
+function endIntro(){
+  if (introDone) return; introDone = true;
+  running.forEach(a => { try{ a.cancel(); }catch(e){} });
+  const a = intro.animate([{opacity:1},{opacity:0}], {duration: reduce ? 1 : 550, fill:'forwards'});
+  a.finished.then(() => {
+    intro.hidden = true; a.cancel(); wm.parentElement.style.opacity = '';
+    document.documentElement.classList.remove('lock');
+  });
+  if (!reduce) $('#hero').animate([{opacity:0,transform:'scale(1.04)'},{opacity:1,transform:'none'}], {duration:900, easing:'cubic-bezier(.2,.8,.2,1)'});
+}
+$('#skip').addEventListener('click', e => { e.stopPropagation(); endIntro(); });
+intro.addEventListener('click', endIntro);
+addEventListener('keydown', e => { if (!intro.hidden && (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ')) endIntro(); });
+$('#replay').addEventListener('click', () => { scrollTo({top:0}); playIntro(); });
+playIntro();
+
+/* ================= NAV + REVEAL ================= */
+const nav = $('#nav');
+addEventListener('scroll', () => nav.classList.toggle('scrolled', scrollY > 8), {passive:true});
+if ('IntersectionObserver' in window && !reduce){
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ e.target.classList.add('pop'); io.unobserve(e.target); } }), {threshold:.12});
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+}
+
+/* ================= HERO TILT ================= */
+const hero = $('#hero'), phone = $('#phone');
+if (!reduce && matchMedia('(pointer:fine)').matches){
+  hero.addEventListener('pointermove', e => {
+    const b = hero.getBoundingClientRect();
+    const x = (e.clientX - b.left)/b.width - .5, y = (e.clientY - b.top)/b.height - .5;
+    phone.style.transform = `rotateY(${x*18}deg) rotateX(${-y*14}deg) translateZ(0)`;
+  });
+  hero.addEventListener('pointerleave', () => phone.style.transform = '');
+}
+
+/* ================= LOOP ================= */
+const steps = [
+  {t:'Sort', ic:'<rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/><path d="M9 6l1.5-2h3L15 6"/>', p:"Snap any item. Claude on Amazon Bedrock names the stream, the bin and a one-line tip, in English or Hindi. Not sure? It asks for a retake instead of guessing.", aws:['S3','Lambda','Bedrock','Rekognition']},
+  {t:'Collect', ic:'<rect x="2" y="7" width="12" height="9" rx="1.5"/><path d="M14 10h4l3 3v3h-7z"/><circle cx="6" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>', p:"Drivers tap Done or Skip. Every lane gets a live ETA, an alert when the truck is two stops away, and a heads-up if it was missed.", aws:['API Gateway','DynamoDB Streams','SNS']},
+  {t:'Report', ic:'<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/>', p:"A photo of an overflowing bin is pinned to ward and lane, triaged for severity and emailed to the officer. The resident watches it go Sent, Seen, Resolved, with an after-photo.", aws:['S3','Bedrock','DynamoDB','SES']},
+  {t:'Predict', ic:'<path d="M3 17l5-5 4 4 8-8"/><path d="M15 8h5v5"/>', p:"Every night at 22:00 IST each lane gets an overflow-risk score. Tomorrow's route visits risky lanes first and holds back the near-empty ones.", aws:['EventBridge Scheduler','Lambda','Amazon Location']},
+  {t:'Recycle', ic:'<path d="M7 19H4l3-5M17 19h3l-3-5M12 4l-2 3.5M12 4l2 3.5"/><path d="M8 12l-2-3h12l-2 3"/>', p:"A pickup request goes to the nearest kabadiwala who buys that material. The first to accept gets it, and the resident sees who's coming.", aws:['Lambda','DynamoDB conditional writes','SES']}
+];
+const pos = [[50,10],[88.04,37.64],[73.51,82.36],[26.49,82.36],[11.96,37.64]];
+const ring = $('#ring'); let li = 0, loopTimer = null;
+const nodes = steps.map((s,i) => {
+  const b = document.createElement('button'); b.className = 'node'; b.type = 'button';
+  b.style.left = pos[i][0] + '%'; b.style.top = pos[i][1] + '%';
+  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${s.ic}</svg>${s.t}`;
+  b.addEventListener('click', () => { clearInterval(loopTimer); loopTimer = null; setStep(i); });
+  ring.appendChild(b); return b;
+});
+function setStep(i){
+  li = i; const s = steps[i];
+  nodes.forEach((n,k) => n.setAttribute('aria-pressed', k === i));
+  $('#lpTitle').textContent = `${i+1}. ${s.t}`;
+  $('#lpText').textContent = s.p;
+  $('#lpAws').innerHTML = s.aws.map(a => `<span class="chip">${a}</span>`).join('');
+  $('#ringNum').textContent = i+1;
+  [...$('#stepDots').children].forEach((d,k) => d.classList.toggle('on', k <= i));
+  $('#ringProg').setAttribute('stroke-dasharray', `${251.3*(i+1)/5} 251.3`);
+}
+setStep(0);
+if (!reduce) loopTimer = setInterval(() => setStep((li+1)%5), 4200);
+
+/* ================= SORT GAME ================= */
+const BINS = {
+  wet:{name:'Wet', note:'Green bin · kitchen waste', c:'var(--wet)', hex:'#3E9E66'},
+  dry:{name:'Dry', note:'Blue bin · recyclables', c:'var(--dry)', hex:'#2F7FC1'},
+  san:{name:'Sanitary', note:'Wrapped and marked', c:'var(--san)', hex:'#CF4F3B'},
+  spec:{name:'Special care', note:'E-waste, batteries', c:'var(--spec)', hex:'#E2A031'}
+};
+const ITEMS = [
+  {n:'Plastic bottle', b:'dry', conf:96, tip:'Rinse it and take the cap off. Recyclable, so a kabadiwala will collect it.', pickup:true,
+   svg:'<rect x="36" y="24" width="28" height="12" rx="3" fill="#2F7FC1"/><path d="M38 36h24l6 14v38a6 6 0 0 1-6 6H38a6 6 0 0 1-6-6V50z" fill="#CFE7F7" stroke="#7FB7DE" stroke-width="2"/><rect x="34" y="58" width="32" height="14" fill="#7FB7DE" opacity=".6"/>'},
+  {n:'Banana peel', b:'wet', conf:98, tip:'Straight into wet waste. Skip the plastic bag so it can be composted.',
+   svg:'<path d="M22 70c10 14 40 20 58-6 4-6 6-18 4-26-6 18-22 30-40 30-10 0-18-2-22 2z" fill="#F2C94C" stroke="#C99A1E" stroke-width="2"/><path d="M82 36l6-10" stroke="#6B4E16" stroke-width="5" stroke-linecap="round"/><path d="M30 72c-6 4-12 10-12 16M38 74c-2 6-2 12 2 18" stroke="#C99A1E" stroke-width="5" stroke-linecap="round" fill="none"/>'},
+  {n:'Chips packet', b:'dry', conf:91, tip:'Multi-layer plastic. Keep it clean and dry, and flatten it.',
+   svg:'<path d="M28 22l6 4 6-4 6 4 6-4 6 4 6-4 6 4v6l-4 50 4 6-6 4-6-4-6 4-6-4-6 4-6-4-6 4-6-4 4-6-4-50z" fill="#F08A3C"/><circle cx="50" cy="56" r="14" fill="#FFD36B"/><rect x="34" y="30" width="32" height="6" rx="3" fill="#fff" opacity=".7"/>'},
+  {n:'Used face mask', b:'san', conf:93, tip:'Sanitary waste. Wrap it in paper, mark it, and keep it out of the dry bin.',
+   svg:'<path d="M26 40q24-10 48 0v26q-24 14-48 0z" fill="#D7EEF8" stroke="#8CC3DD" stroke-width="2"/><path d="M26 44q-12 2-12 12t12 10M74 44q12 2 12 12t-12 10" stroke="#8CC3DD" stroke-width="3" fill="none"/><path d="M30 50h40M30 58h40" stroke="#8CC3DD" stroke-width="2"/>'},
+  {n:'Old phone', b:'spec', conf:97, tip:'Never in the bin. Request an e-waste pickup and a recycler will take it.', pickup:true,
+   svg:'<rect x="30" y="14" width="40" height="72" rx="8" fill="#22313A"/><rect x="34" y="22" width="32" height="54" rx="3" fill="#5FB0E0"/><path d="M40 30l20 30M54 28l8 12" stroke="#fff" stroke-width="2" opacity=".6"/><circle cx="50" cy="81" r="2.5" fill="#5FB0E0"/>'},
+  {n:'Leftover dal-chawal', b:'wet', conf:95, tip:'Wet waste. Drain any liquid first so the bin stays clean.',
+   svg:'<path d="M18 50h64a32 26 0 0 1-64 0z" fill="#fff" stroke="#C7D3CB" stroke-width="2"/><ellipse cx="50" cy="50" rx="32" ry="7" fill="#F2C94C"/><ellipse cx="42" cy="49" rx="10" ry="4" fill="#fff"/><path d="M40 36c-4-6 4-8 0-14M52 36c-4-6 4-8 0-14M64 36c-4-6 4-8 0-14" stroke="#B9C7BE" stroke-width="2.5" fill="none" stroke-linecap="round"/>'},
+  {n:'AA battery', b:'spec', conf:94, tip:'Hazardous. Keep it apart and hand it over with e-waste.',
+   svg:'<rect x="30" y="26" width="40" height="62" rx="6" fill="#2B2B2B"/><rect x="30" y="26" width="40" height="22" rx="6" fill="#E2A031"/><rect x="42" y="18" width="16" height="9" rx="2" fill="#9AA4A0"/><path d="M50 58v14M43 65h14" stroke="#fff" stroke-width="3"/>'},
+  {n:'Old newspaper', b:'dry', conf:97, tip:'Dry and recyclable. Kabadiwalas pay for paper by the kilo.', pickup:true,
+   svg:'<rect x="20" y="24" width="60" height="56" rx="4" fill="#F4F1E8" stroke="#BDB6A2" stroke-width="2"/><rect x="26" y="30" width="48" height="10" fill="#4A4A4A"/><path d="M26 48h22M26 54h22M26 60h22M26 66h22M54 48h20M54 54h20M54 60h20M54 66h20M26 72h48" stroke="#9C9686" stroke-width="2"/>'}
+];
+const binSVG = (hex) => `<svg viewBox="0 0 110 120" aria-hidden="true">
+  <path d="M14 34h82l-8 80q-.6 5-5.6 5H27.6q-5 0-5.6-5z" fill="${hex}"/>
+  <path d="M38 46l2 60M72 46l-2 60" stroke="#000" stroke-opacity=".18" stroke-width="3" stroke-linecap="round"/>
+  <g class="blid"><rect x="42" y="16" width="26" height="9" rx="4" fill="${hex}" style="filter:brightness(.8)"/><rect x="8" y="22" width="94" height="12" rx="5" fill="${hex}" style="filter:brightness(1.12)"/></g>
+</svg>`;
+const binsEl = $('#bins');
+const binBtns = {};
+Object.entries(BINS).forEach(([k,v]) => {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'binbtn'; b.dataset.k = k;
+  b.innerHTML = `${binSVG(v.hex)}<b>${v.name}</b><small>${v.note}</small>`;
+  b.addEventListener('click', () => answer(k, false));
+  binsEl.appendChild(b); binBtns[k] = b;
+});
+let order = ITEMS.map((_,i) => i), gi = 0, score = 0, tries = 0, locked = false;
+const itemIcon = $('#itemIcon'), result = $('#result'), card = $('#itemCard');
+function itemSVG(it){ return `<svg viewBox="0 0 100 100" aria-hidden="true">${it.svg}</svg>`; }
+function showItem(){
+  const it = ITEMS[order[gi]];
+  itemIcon.innerHTML = itemSVG(it);
+  $('#itemName').textContent = it.n;
+  $('#itemCount').textContent = `Item ${gi+1} of ${ITEMS.length}`;
+  Object.values(binBtns).forEach(b => b.classList.remove('right','wrong','open'));
+  locked = false;
+  if (!reduce) itemIcon.animate([{transform:'scale(.6) rotate(-20deg)',opacity:0},{transform:'scale(1.08) rotate(4deg)',opacity:1,offset:.7},{transform:'none',opacity:1}],{duration:550,easing:'cubic-bezier(.2,.8,.2,1)'});
+}
+async function fly(toBtn){
+  if (reduce) return;
+  const from = itemIcon.getBoundingClientRect(), svg = toBtn.querySelector('svg').getBoundingClientRect();
+  const f = document.createElement('div'); f.className = 'flyer';
+  f.style.left = from.left + 'px'; f.style.top = from.top + 'px'; f.style.width = from.width + 'px'; f.style.height = from.height + 'px';
+  f.innerHTML = itemSVG(ITEMS[order[gi]]); document.body.appendChild(f);
+  itemIcon.style.visibility = 'hidden';
+  const dx = svg.left + svg.width/2 - (from.left + from.width/2), dy = svg.top + svg.height*.2 - (from.top + from.height/2);
+  const midX = dx*.5, midY = Math.min(dy, 0) - 140;
+  await f.animate([
+    {transform:'translate(0,0) scale(1) rotate(0)'},
+    {transform:`translate(${midX}px,${midY}px) scale(.7) rotate(200deg)`, offset:.5},
+    {transform:`translate(${dx}px,${dy}px) scale(.22) rotate(400deg)`, opacity:1, offset:.9},
+    {transform:`translate(${dx}px,${dy+30}px) scale(.12) rotate(420deg)`, opacity:0}
+  ], {duration:900, easing:'cubic-bezier(.4,0,.3,1)', fill:'forwards'}).finished.catch(()=>{});
+  f.remove(); itemIcon.style.visibility = '';
+  toBtn.animate([{transform:'scale(1)'},{transform:'scale(1.08,.92)'},{transform:'scale(.97,1.04)'},{transform:'scale(1)'}],{duration:420});
+}
+async function answer(k, byAI){
+  if (locked) return; locked = true;
+  const it = ITEMS[order[gi]], correct = it.b, btn = binBtns[k];
+  btn.classList.add('open');
+  await fly(btn);
+  btn.classList.remove('open');
+  if (!byAI){ tries++; if (k === correct) score++; }
+  btn.classList.add(k === correct ? 'right' : 'wrong');
+  if (k !== correct) binBtns[correct].classList.add('right');
+  $('#scoreTxt').textContent = `Score ${score} / ${tries}`;
+  const B = BINS[correct];
+  const head = byAI ? 'Claude sorted it.' : (k === correct ? 'Sahi jawab! Right bin.' : `Close. It goes in ${B.name}.`);
+  const last = gi === ITEMS.length - 1;
+  result.innerHTML = `
+    <div class="verdict">${head}</div>
+    <div class="ai"><span class="stream" style="background:${B.c}">${B.name.toUpperCase()}</span><span class="chip">${B.note}</span><span class="chip">${it.conf}% confident · sample</span></div>
+    <p class="tip">“${it.tip}”</p>
+    <div class="row">${it.pickup ? '<span class="chip" style="background:var(--mint);color:var(--forest)">Request pickup available</span>' : '<span></span>'}
+      <button class="btn btn-primary" id="nextItem" type="button" style="padding:12px 22px">${last ? 'Play again' : 'Next item'}</button></div>`;
+  $('#nextItem').addEventListener('click', () => {
+    if (last){ gi = 0; score = 0; tries = 0; order.sort(() => Math.random() - .5); $('#scoreTxt').textContent = 'Score 0 / 0'; }
+    else gi++;
+    result.innerHTML = `<div class="verdict">Your turn.</div><p class="tip">Tap the bin you think this goes in.</p>`;
+    showItem();
+  });
+  if (tries > 0 && !byAI && last){ toast(`You sorted ${score} of ${tries} right.`); }
+}
+$('#askAI').addEventListener('click', async () => {
+  if (locked) return;
+  card.classList.add('scanning');
+  result.innerHTML = `<div class="verdict">Checking the photo…</div><p class="tip">Image to S3, then Lambda asks Claude on Amazon Bedrock.</p>`;
+  await sleep(reduce ? 50 : 1300);
+  card.classList.remove('scanning');
+  answer(ITEMS[order[gi]].b, true);
+});
+showItem();
+
+/* ================= TRUCK ETA SIM ================= */
+const STOPS = [
+  {n:'Lane 1, Pocket A', m:8},{n:'Lane 2, Pocket B', m:7},{n:'Lane 3, Pocket C', m:10},
+  {n:'Lane 4, Pocket D', m:12, mine:true},{n:'Lane 5, Pocket A', m:6},{n:'Lane 5, Pocket B', m:0}
+];
+const MINE = 3; let cur, status, clock, alerted;
+const fmt = min => { const h = 10 + Math.floor(min/60), m = min%60; return `${h}:${String(m).padStart(2,'0')}`; };
+const resTrack = $('#resTrack');
+function simReset(){
+  cur = 0; status = STOPS.map(() => 'pending'); clock = 2; alerted = false;
+  $('#feed').innerHTML = `<div><time>10:00</time>Route started. You'll get a heads-up before the truck reaches your lane.</div>`;
+  resTrack.querySelectorAll('.stopdot,.rtruck').forEach(e => e.remove());
+  STOPS.forEach((s,i) => { const d = document.createElement('span'); d.className = 'stopdot' + (s.mine ? ' mine' : ''); d.style.left = `calc(12px + (100% - 24px) * ${i/(STOPS.length-1)})`; resTrack.appendChild(d); });
+  const t = document.createElement('div'); t.className = 'rtruck'; t.innerHTML = '<svg viewBox="0 0 40 24"><rect x="2" y="4" width="22" height="14" rx="3" fill="var(--forest)"/><path d="M24 8h8l6 6v4H24z" fill="var(--leaf)"/><circle cx="10" cy="20" r="3.5" fill="var(--ink)"/><circle cx="31" cy="20" r="3.5" fill="var(--ink)"/></svg>'; resTrack.appendChild(t);
+  renderSim();
+}
+function addFeed(html){ const d = document.createElement('div'); d.innerHTML = `<time>${fmt(clock)}</time>${html}`; $('#feed').prepend(d); }
+function renderSim(){
+  const ul = $('#stops'); ul.innerHTML = '';
+  STOPS.forEach((s,i) => {
+    const li = document.createElement('li');
+    li.className = status[i] === 'done' ? 'done' : status[i] === 'skipped' ? 'skipped' : (i === cur ? 'current' : '');
+    const mark = status[i] === 'done' ? '✓' : status[i] === 'skipped' ? '↷' : i+1;
+    li.innerHTML = `<span class="st">${mark}</span><span class="nm">${s.n}${s.mine ? '<span class="you">YOUR LANE</span>' : ''}</span><span class="tm">${s.t || (i === cur ? 'Current stop' : '')}</span>`;
+    ul.appendChild(li);
+  });
+  const doneN = status.filter(x => x !== 'pending').length;
+  $('#stopCount').textContent = `${doneN}/${STOPS.length} stops`;
+  $('#prog').style.width = (doneN/STOPS.length*100) + '%';
+  $('#bDone').disabled = $('#bSkip').disabled = cur >= STOPS.length;
+  resTrack.querySelectorAll('.stopdot').forEach((d,i) => d.classList.toggle('passed', status[i] === 'done'));
+  const t = resTrack.querySelector('.rtruck'); const p = Math.min(cur, STOPS.length-1);
+  t.style.left = `calc(12px + (100% - 24px) * ${p/(STOPS.length-1)})`;
+  const big = $('#resBig'), sub = $('#resSub');
+  if (status[MINE] === 'done'){ big.textContent = 'Collected'; sub.textContent = `Your lane was picked up at ${STOPS[MINE].t}.`; }
+  else if (status[MINE] === 'skipped'){ big.textContent = 'Missed today'; sub.innerHTML = 'The driver skipped your lane. <button class="linkbtn" type="button" id="repBtn">Report it</button>'; $('#repBtn').onclick = () => toast('Report sent to the ward officer.'); }
+  else {
+    const away = MINE - cur;
+    let eta = 4; for (let i = cur; i < MINE; i++) eta += STOPS[i].m;
+    big.textContent = away === 0 ? 'Truck at your lane' : `${away} stop${away > 1 ? 's' : ''} away`;
+    sub.textContent = away === 0 ? 'Bring your bins out now.' : `About ${eta} min`;
+  }
+}
+function act(kind){
+  if (cur >= STOPS.length) return;
+  const s = STOPS[cur];
+  status[cur] = kind; s.t = fmt(clock) + (kind === 'skipped' ? ' · skipped' : '');
+  if (kind === 'skipped' && cur === MINE){ addFeed('<b>Your lane was missed today.</b> Report it so tomorrow\'s plan knows.'); toast('Lane 4 alert: the truck skipped your lane today.'); }
+  clock += s.m || 0; cur++;
+  if (cur < STOPS.length && MINE - cur === 2 && !alerted && status[MINE] === 'pending'){
+    alerted = true; let eta = 4; for (let i = cur; i < MINE; i++) eta += STOPS[i].m;
+    addFeed(`<b>Truck is 2 stops away.</b> About ${eta} min. Keep your bins ready.`); toast(`Lane 4 alert: truck is 2 stops away · ~${eta} min`);
+  }
+  if (cur === MINE && status[MINE] === 'pending'){ addFeed('<b>Truck is at your lane.</b>'); toast('Lane 4 alert: the truck is here.'); }
+  if (kind === 'done' && cur - 1 === MINE){ addFeed('<b>Collected.</b> Thanks for keeping it sorted.'); }
+  if (cur === STOPS.length) addFeed('Route complete for today.');
+  STOPS.forEach((x,i) => { if (status[i] === 'pending') x.t = ''; });
+  renderSim();
+}
+$('#bDone').addEventListener('click', () => act('done'));
+$('#bSkip').addEventListener('click', () => act('skipped'));
+$('#resetSim').addEventListener('click', () => { STOPS.forEach(s => s.t = ''); simReset(); });
+simReset();
+
+/* ================= RISK ================= */
+const OTHERS = [
+  {id:'a', n:'Lane 4, Pocket D', s:88, d:2},
+  {id:'b', n:'Lane 5, Pocket A', s:72, d:1},
+  {id:'c', n:'Lane 5, Pocket B', s:46, d:1},
+  {id:'d', n:'Lane 2, Pocket C', s:28, d:1},
+  {id:'e', n:'Lane 1, Pocket A', s:14, d:1, defer:true}
+];
+const rIn = { rep:$('#rReports'), days:$('#rDays'), miss:$('#rMissed'), rain:$('#rRain') };
+const mk = $('#rMarket');
+const lvlOf = s => s > 65 ? ['high','var(--alert)'] : s >= 35 ? ['medium','var(--warn)'] : ['low','var(--ok)'];
+const routeEl = $('#route'); const rows = {};
+[...OTHERS, {id:'me', n:'Lane 3, Pocket C', me:true}].forEach(o => {
+  const li = document.createElement('li'); li.dataset.id = o.id; if (o.me) li.classList.add('me');
+  li.innerHTML = `<span class="ix"></span><span class="nm">${o.n}${o.me ? ' <span style="font-size:12px;color:var(--leaf);font-family:var(--mono)">· YOU</span>' : ''}</span><span class="sc"></span>`;
+  routeEl.appendChild(li); rows[o.id] = li;
+});
+function calcRisk(){
+  const r = +rIn.rep.value, d = +rIn.days.value, m = +rIn.miss.value, rain = +rIn.rain.value, market = mk.getAttribute('aria-checked') === 'true';
+  $('#vReports').textContent = r; $('#vDays').textContent = d + (d === 1 ? ' day' : ' days'); $('#vMissed').textContent = m; $('#vRain').textContent = rain + ' mm';
+  const s = Math.round(30*Math.min(r/2,1) + 25*Math.min(d/3,1) + 20*Math.min(m/2,1) + 15*Math.min(rain/10,1) + (market ? 10 : 0));
+  const [lvl, col] = lvlOf(s);
+  $('#gNum').textContent = s; const g = $('#gLvl'); g.textContent = lvl; g.style.background = col;
+  const arc = $('#gArc'); arc.setAttribute('stroke-dasharray', `${283*s/100} 283`); arc.setAttribute('stroke', col);
+  const meDefer = s < 20 && d <= 1 && r === 0 && !market;
+  const all = [...OTHERS.map(o => ({...o})), {id:'me', s, defer:meDefer}];
+  const high = all.filter(x => x.s > 65 && !x.defer).sort((a,b) => b.s - a.s);
+  const rest = all.filter(x => x.s <= 65 && !x.defer).sort((a,b) => b.s - a.s);
+  const def = all.filter(x => x.defer);
+  const ordered = [...high, ...rest, ...def];
+  const before = {}; Object.values(rows).forEach(el => before[el.dataset.id] = el.getBoundingClientRect().top);
+  let n = 0;
+  ordered.forEach(o => {
+    const el = rows[o.id]; routeEl.appendChild(el);
+    el.classList.toggle('deferred', !!o.defer);
+    el.querySelector('.ix').textContent = o.defer ? '–' : String(++n).padStart(2,'0');
+    const sc = el.querySelector('.sc'); sc.textContent = o.s; sc.style.background = lvlOf(o.s)[1];
+  });
+  if (!reduce) ordered.forEach(o => { const el = rows[o.id]; const dy = before[o.id] - el.getBoundingClientRect().top; if (dy) el.animate([{transform:`translateY(${dy}px)`},{transform:'none'}],{duration:450,easing:'cubic-bezier(.3,1.3,.5,1)'}); });
+}
+Object.values(rIn).forEach(i => i.addEventListener('input', calcRisk));
+mk.addEventListener('click', () => { mk.setAttribute('aria-checked', mk.getAttribute('aria-checked') !== 'true'); calcRisk(); });
+calcRisk();
+
+/* ================= COUNTERS ================= */
+if ('IntersectionObserver' in window && !reduce){
+  const co = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return; co.unobserve(e.target);
+    const el = e.target, end = parseFloat(el.dataset.count), unit = el.querySelector('small').outerHTML, t0 = performance.now();
+    const tick = t => { const p = Math.min((t - t0)/1400, 1), v = end * (1 - Math.pow(1-p, 3)); el.innerHTML = v.toFixed(1) + unit; if (p < 1) requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }), {threshold:.4});
+  document.querySelectorAll('[data-count]').forEach(el => co.observe(el));
+}
+
+/* ================= TOAST ================= */
+let tt; function toast(msg){ const t = $('#toast'); $('#toastTxt').textContent = msg; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 3600); }
+})();
+</script>
+
+</body></html>
