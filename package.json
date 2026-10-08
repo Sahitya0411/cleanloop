@@ -1,0 +1,48 @@
+{
+  "name": "cleanloop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CleanLoop: sort, collect, report, predict and recycle household waste. Built on AWS for Environmental Hacks 2026.",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build:lambdas && npm run build -w frontend",
+    "build:lambdas": "node scripts/build-lambdas.mjs",
+    "e2e": "npm run e2e -w frontend",
+    "check": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "check:aws": "npm run check:aws -w backend",
+    "deploy": "bash scripts/deploy.sh",
+    "seed": "npm run seed -w backend --",
+    "destroy": "bash scripts/destroy.sh",
+    "add-user": "npm run add-user -w backend --",
+    "backtest": "npm run backtest -w backend",
+    "icons": "node scripts/make-icons.mjs",
+    "test:dynamo": "docker run -d --rm --name cleanloop-ddb -p 8000:8000 amazon/dynamodb-local >/dev/null && sleep 3; DYNAMODB_ENDPOINT=http://localhost:8000 npm test -w backend; s=$?; docker stop cleanloop-ddb >/dev/null; exit $s"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.9",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1"
+  },
+  "overrides": {
+    "@smithy/types": "^4.19.0"
+  },
+  "type": "module"
+}

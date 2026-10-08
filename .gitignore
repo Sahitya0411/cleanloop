@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.aws-sam/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+frontend/.env.local
+frontend/.env.production.local
+.local-data/
+playwright-report/
+test-results/
+infra/packaged.yaml
+.deploy/

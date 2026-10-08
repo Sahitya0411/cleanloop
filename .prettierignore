@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+package-lock.json
+*.pdf
+*.jpeg
+infra/packaged.yaml
+playwright-report
+test-results
+.deploy
+CleanLoop.html
+frontend/public/landing.html
